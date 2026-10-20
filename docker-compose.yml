@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: jobhunter-db
+    environment:
+      POSTGRES_DB: jobhunter
+      POSTGRES_USER: ${DB_USER:-jobhunter}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-jobhunter}
+    ports:
+      - "127.0.0.1:5433:5432"   # 5433: a local Windows PostgreSQL already uses 5432
+    volumes:
+      - jobhunter-data:/var/lib/postgresql/data
+
+volumes:
+  jobhunter-data:

@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: job-hunter
+  config:
+    import: optional:file:.env[.properties]   # reads APIFY_TOKEN etc. from .env in the project folder
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/jobhunter}
+    username: ${DB_USER:jobhunter}
+    password: ${DB_PASSWORD:jobhunter}
+  jpa:
+    hibernate:
+      ddl-auto: update        # fine for the MVP; switch to Flyway once the schema settles
+    open-in-view: false
+
+server:
+  port: 8085
+  address: 127.0.0.1         # only reachable from this PC (the API has no login)
+
+jobhunter:
+  apify:
+    token: ${APIFY_TOKEN:}    # never hard-code it; set it in .env / your shell
+    base-url: https://api.apify.com
+    timeout: 6m               # run-sync waits for the actor to finish (Apify caps it at 300 s)
+    # Every input template below was checked against the actor's real input schema.
+    # Placeholders: {keyword} {location} {limit}. Each source has its own searches because every
+    # site wants a different location format. Prices are Apify's FREE-tier per-result prices.
+    sources:
+      # LinkedIn, Pune internships. {location} is a LinkedIn geoId (114806696 = Pune area): text like
+      # "Pune, Maharashtra, India" is not understood by LinkedIn and returns all-India results.  $0.001/job
+      - actor-id: harvestapi/linkedin-job-search
+        enabled: true
+        input-template: >
+          {"jobTitles": ["{keyword}"], "geoIds": ["{location}"], "maxItems": {limit},
+           "postedLimit": "week", "sortBy": "date", "experienceLevel": ["internship"]}
+        searches:
+          - { keyword: Java Developer Intern,    location: "114806696" }
+          - { keyword: Software Engineer Intern, location: "114806696" }
+
+      # LinkedIn, remote internships anywhere in India (102713980 = India).  $0.001/job
+      - actor-id: harvestapi/linkedin-job-search
+        enabled: true
+        input-template: >
+          {"jobTitles": ["{keyword}"], "geoIds": ["{location}"], "maxItems": {limit}, "workplaceType": ["remote"],
+           "postedLimit": "week", "sortBy": "date", "experienceLevel": ["internship"]}
+        searches:
+          - { keyword: Java Developer Intern,     location: "102713980" }
+          - { keyword: Backend Developer Intern,  location: "102713980" }
+          - { keyword: Spring Boot Intern,        location: "102713980" }
+
+      # Internshala, Pune internships.  $0.0004/result, limited permissions
+      - actor-id: blackfalcondata/internshala-scraper
+        enabled: true
+        input-template: >
+          {"listingType": "internship", "query": "{keyword}", "location": "{location}", "maxResults": {limit}}
+        searches:
+          - { keyword: java,                  location: pune }
+          - { keyword: full stack development, location: pune }
+
+      # Internshala, work-from-home internships.  $0.0004/result
+      - actor-id: blackfalcondata/internshala-scraper
+        enabled: true
+        input-template: >
+          {"listingType": "internship", "query": "{keyword}", "workFromHome": true, "maxResults": {limit}}
+        searches:
+          - { keyword: java,                location: wfh }
+          - { keyword: backend development, location: wfh }
+
+      # Naukri, Pune, 0 years experience, posted in the last 7 days.  $0.0004/result, limited permissions
+      - actor-id: valig/naukri-jobs-scraper
+        enabled: true
+        input-template: >
+          {"keywords": "{keyword}", "location": "{location}", "experience": 0, "jobAge": "7", "limit": {limit}}
+        searches:
+          - { keyword: java developer intern, location: pune }
+          - { keyword: java developer fresher, location: pune }
+
+  discovery:
+    scheduler-enabled: false  # run once manually first, check results + cost, THEN turn on
+    cron: "0 0 9 * * MON,WED,FRI"   # ~$0.16/run x 13 runs = ~$2/month, inside the $5 free tier
+    zone: Asia/Kolkata
+    max-items-per-search: 20  # cost guard
+    max-searches-per-run: 11  # cost guard: 11 searches x 20 items ~= $0.16 per run
+    delay-seconds-between-searches: 5
+    max-years-experience: 1   # drop postings asking more than this (interns/freshers always kept)
+    min-score-to-shortlist: 60
+    # Keep Pune and remote only. Remote jobs are tagged "(Remote)" by the mapper; Internshala uses "Work from home".
+    location-must-contain: [pune, remote, work from home]
+    searches: []              # fallback for sources without their own list
